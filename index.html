@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>System Terminal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --green: #00ff41;
+    --green-dim: #00aa2a;
+    --green-glow: rgba(0, 255, 65, 0.4);
+    --red: #ff003c;
+    --bg: #000300;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--green);
+    font-family: 'Share Tech Mono', monospace;
+    overflow: hidden;
+    cursor: none;
+  }
+
+  /* CRT scanlines */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 9998;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.15) 2px,
+      rgba(0,0,0,0.15) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* CRT flicker overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 9997;
+    background: rgba(0, 255, 65, 0.015);
+    animation: flicker 0.08s infinite alternate;
+    pointer-events: none;
+  }
+
+  @keyframes flicker {
+    0%   { opacity: 1; }
+    92%  { opacity: 1; }
+    93%  { opacity: 0.4; }
+    94%  { opacity: 1; }
+    96%  { opacity: 0.6; }
+    100% { opacity: 1; }
+  }
+
+  /* Matrix rain canvas */
+  #matrix-canvas {
+    position: fixed; inset: 0; z-index: 0;
+    opacity: 0.18;
+  }
+
+  /* Main terminal */
+  #terminal {
+    position: fixed; inset: 0; z-index: 10;
+    padding: 24px 32px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    text-shadow: 0 0 8px var(--green-glow);
+  }
+
+  .line {
+    font-size: clamp(11px, 1.4vw, 15px);
+    line-height: 1.65;
+    white-space: pre;
+    opacity: 0;
+    animation: fadeIn 0.01s forwards;
+    letter-spacing: 0.03em;
+  }
+
+  .line.dim  { color: var(--green-dim); }
+  .line.warn { color: #ffcc00; text-shadow: 0 0 8px rgba(255,200,0,0.5); }
+  .line.err  { color: var(--red); text-shadow: 0 0 10px rgba(255,0,60,0.6); animation: fadeIn 0.01s forwards, errPulse 0.5s ease-in-out infinite alternate; }
+  .line.bold { color: #fff; text-shadow: 0 0 12px rgba(255,255,255,0.5); font-size: clamp(12px, 1.6vw, 17px); }
+  .line.big  { color: var(--red); font-size: clamp(18px, 3vw, 36px); text-shadow: 0 0 20px rgba(255,0,60,0.8); letter-spacing: 0.15em; animation: fadeIn 0.01s forwards, errPulse 0.4s ease-in-out infinite alternate; }
+  .line.spacer { height: 6px; opacity: 1; }
+
+  @keyframes fadeIn { to { opacity: 1; } }
+  @keyframes errPulse {
+    from { opacity: 0.7; }
+    to   { opacity: 1; }
+  }
+
+  /* Blinking cursor */
+  #cursor {
+    display: inline-block;
+    width: 10px; height: 1.2em;
+    background: var(--green);
+    vertical-align: text-bottom;
+    animation: blink 0.6s steps(1) infinite;
+    margin-left: 2px;
+    box-shadow: 0 0 6px var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Progress bar */
+  .progress-wrap {
+    font-size: clamp(11px, 1.4vw, 15px);
+    line-height: 1.65;
+    opacity: 0;
+    animation: fadeIn 0.01s forwards;
+  }
+  .progress-bar {
+    display: inline-block;
+    height: 10px;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green-glow);
+    width: 0%;
+    transition: width 0.04s linear;
+    vertical-align: middle;
+  }
+  .progress-track {
+    display: inline-block;
+    width: 200px;
+    height: 10px;
+    border: 1px solid var(--green-dim);
+    vertical-align: middle;
+    overflow: hidden;
+  }
+
+  /* Screen glitch */
+  .glitch-screen {
+    position: fixed; inset: 0; z-index: 9999;
+    pointer-events: none;
+    display: none;
+  }
+  .glitch-screen.active {
+    display: block;
+    animation: screenGlitch 0.12s steps(1) 3;
+  }
+  @keyframes screenGlitch {
+    0%   { background: rgba(0,255,65,0.07); transform: skewX(0deg); }
+    25%  { background: rgba(255,0,60,0.1);  transform: skewX(-1.5deg) translateX(4px); }
+    50%  { background: rgba(0,255,65,0.05); transform: skewX(1deg) translateX(-3px); }
+    75%  { background: rgba(0,0,0,0.9);     transform: skewX(0.5deg); }
+    100% { background: transparent;          transform: skewX(0deg); }
+  }
+
+  /* Red alert overlay */
+  #alert-overlay {
+    position: fixed; inset: 0; z-index: 9995;
+    background: rgba(255, 0, 0, 0.0);
+    pointer-events: none;
+    display: none;
+  }
+  #alert-overlay.active {
+    display: block;
+    animation: redPulse 0.8s ease-in-out infinite;
+  }
+  @keyframes redPulse {
+    0%   { background: rgba(255,0,0,0.0); }
+    50%  { background: rgba(255,0,0,0.08); }
+    100% { background: rgba(255,0,0,0.0); }
+  }
+
+  /* Stamp */
+  #stamp {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(-12deg) scale(0);
+    z-index: 9996;
+    border: 6px solid var(--red);
+    color: var(--red);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: clamp(28px, 6vw, 72px);
+    font-weight: bold;
+    letter-spacing: 0.2em;
+    padding: 16px 36px;
+    text-shadow: 0 0 20px rgba(255,0,60,0.8);
+    box-shadow: 0 0 40px rgba(255,0,60,0.5), inset 0 0 20px rgba(255,0,60,0.1);
+    pointer-events: none;
+    opacity: 0;
+    transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s;
+  }
+  #stamp.show {
+    opacity: 0.95;
+    transform: translate(-50%, -50%) rotate(-12deg) scale(1);
+  }
+</style>
+</head>
+<body>
+
+<canvas id="matrix-canvas"></canvas>
+<div id="terminal"></div>
+<div class="glitch-screen" id="glitch"></div>
+<div id="alert-overlay"></div>
+<div id="stamp">ACCESS GRANTED</div>
+
+<script>
+// ── Matrix Rain ────────────────────────────────────────────────
+(function(){
+  const c = document.getElementById('matrix-canvas');
+  const ctx = c.getContext('2d');
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+-=[]{}|;<>?,./\\~`abcdefghijklmnopqrstuvwxyz';
+  let cols, drops;
+  function init(){
+    c.width  = window.innerWidth;
+    c.height = window.innerHeight;
+    cols  = Math.floor(c.width / 16);
+    drops = Array(cols).fill(1);
+  }
+  function draw(){
+    ctx.fillStyle = 'rgba(0,3,0,0.05)';
+    ctx.fillRect(0,0,c.width,c.height);
+    ctx.fillStyle = '#00ff41';
+    ctx.font = '14px Share Tech Mono';
+    drops.forEach((y,i)=>{
+      ctx.fillText(chars[Math.floor(Math.random()*chars.length)], i*16, y*16);
+      if(y*16 > c.height && Math.random() > 0.975) drops[i] = 0;
+      drops[i]++;
+    });
+  }
+  init();
+  window.addEventListener('resize', init);
+  setInterval(draw, 45);
+})();
+
+// ── Terminal Engine ────────────────────────────────────────────
+const term    = document.getElementById('terminal');
+const glitch  = document.getElementById('glitch');
+const alertOv = document.getElementById('alert-overlay');
+const stamp   = document.getElementById('stamp');
+
+let queue = [];
+let running = false;
+
+// Each entry: { text, cls, delay, type }
+const script = [
+  { text: '', cls:'spacer', delay:200 },
+  { text: 'SYSTEM BOOT SEQUENCE INITIALIZED...', cls:'bold', delay:60 },
+  { text: 'Kernel version: 5.19.0-blackarch-custom', cls:'dim', delay:40 },
+  { text: 'Loading modules.........', cls:'', delay:50 },
+  { text: '', cls:'spacer', delay:80 },
+  { text: '>> Establishing secure tunnel...', cls:'', delay:70 },
+  { text: '>> Bypassing firewall [Layer 3/4/7]...', cls:'', delay:90 },
+  { text: '   [OK]  iptables rules flushed', cls:'dim', delay:30 },
+  { text: '   [OK]  Deep packet inspection disabled', cls:'dim', delay:30 },
+  { text: '   [OK]  VPN chained: RU > CN > TOR > I2P', cls:'dim', delay:30 },
+  { text: '', cls:'spacer', delay:60 },
+  { text: '>> Scanning target network...', cls:'', delay:80 },
+  { text: '   Discovered 247 open ports', cls:'dim', delay:40 },
+  { text: '   CVE-2024-3871 vulnerability: DETECTED', cls:'warn', delay:50 },
+  { text: '   CVE-2025-1122 privilege escalation: DETECTED', cls:'warn', delay:50 },
+  { text: '', cls:'spacer', delay:60 },
+  { type:'progress', label:'Injecting payload ', delay:20, steps:60 },
+  { text: '', cls:'spacer', delay:60 },
+  { text: '   [OK]  Payload injected successfully', cls:'', delay:40 },
+  { text: '>> Escalating privileges...', cls:'', delay:80 },
+  { text: '   root@localhost:~# whoami', cls:'dim', delay:40 },
+  { text: '   root', cls:'bold', delay:30 },
+  { text: '', cls:'spacer', delay:60 },
+  { text: '>> Dumping /etc/shadow...', cls:'', delay:70 },
+  { text: '   root:$6$sAlT$9xKy2mV...  [CRACKED]', cls:'dim', delay:35 },
+  { text: '   admin:$6$hAsh$mNq7pZ1...  [CRACKED]', cls:'dim', delay:35 },
+  { text: '   user:$6$uSeR$kWp3xQ9...  [CRACKED]', cls:'dim', delay:35 },
+  { text: '', cls:'spacer', delay:80 },
+  { text: '>> Accessing browser session data...', cls:'', delay:80 },
+  { type:'progress', label:'Exfiltrating cookies ', delay:18, steps:80 },
+  { text: '', cls:'spacer', delay:60 },
+  { text: '   [OK]  Gmail session token captured', cls:'warn', delay:40 },
+  { text: '   [OK]  Facebook auth cookie stolen', cls:'warn', delay:40 },
+  { text: '   [OK]  Banking session: ACTIVE', cls:'err', delay:50 },
+  { text: '', cls:'spacer', delay:80 },
+  { type:'progress', label:'Uploading to C2 server ', delay:15, steps:100 },
+  { text: '', cls:'spacer', delay:100 },
+  { text: '>> Covering tracks...', cls:'', delay:80 },
+  { text: '   Clearing logs...', cls:'dim', delay:50 },
+  { text: '   Deleting bash history...', cls:'dim', delay:50 },
+  { text: '   Removing artifacts...', cls:'dim', delay:50 },
+  { text: '', cls:'spacer', delay:100 },
+  { type:'glitch', delay:300 },
+  { text: '', cls:'spacer', delay:100 },
+  { text: '========================================', cls:'err', delay:20 },
+  { text: '  HACK COMPLETE', cls:'big', delay:50 },
+  { text: '  TARGET SYSTEM FULLY COMPROMISED', cls:'err', delay:40 },
+  { text: '========================================', cls:'err', delay:20 },
+  { text: '', cls:'spacer', delay:200 },
+  { text: '  Just kidding! You have been pranked :)', cls:'bold', delay:60 },
+  { text: '  Your data is totally fine. Relax!', cls:'bold', delay:60 },
+  { text: '', cls:'spacer', delay:100 },
+  { type:'stamp', delay:400 },
+  { type:'cursor', delay:0 },
+];
+
+function addLine(text, cls){
+  const div = document.createElement('div');
+  div.className = 'line' + (cls ? ' ' + cls : '');
+  div.textContent = text;
+  term.appendChild(div);
+  term.scrollTop = term.scrollHeight;
+}
+
+function addProgress(label, steps, stepDelay, resolve){
+  const wrap = document.createElement('div');
+  wrap.className = 'progress-wrap';
+  wrap.innerHTML = label + '<span class="progress-track"><span class="progress-bar" id="pbar"></span></span> <span id="ppct">0%</span>';
+  term.appendChild(wrap);
+  term.scrollTop = term.scrollHeight;
+  let step = 0;
+  const bar = wrap.querySelector('.progress-bar');
+  const pct = wrap.querySelector('#ppct');
+  const interval = setInterval(()=>{
+    step++;
+    const p = Math.min(100, Math.round(step / steps * 100));
+    bar.style.width = p + '%';
+    pct.textContent = p + '%';
+    if(step >= steps){ clearInterval(interval); resolve(); }
+  }, stepDelay);
+}
+
+function triggerGlitch(){
+  glitch.classList.add('active');
+  setTimeout(()=> glitch.classList.remove('active'), 400);
+}
+
+function runQueue(){
+  if(!script.length){ running = false; return; }
+  const item = script.shift();
+
+  if(item.type === 'progress'){
+    setTimeout(()=>{
+      new Promise(resolve => addProgress(item.label, item.steps, item.delay, resolve))
+        .then(()=>{ addLine(''); runQueue(); });
+    }, item.delay);
+    return;
+  }
+
+  if(item.type === 'glitch'){
+    setTimeout(()=>{ triggerGlitch(); runQueue(); }, item.delay);
+    return;
+  }
+
+  if(item.type === 'stamp'){
+    alertOv.classList.add('active');
+    setTimeout(()=>{ stamp.classList.add('show'); runQueue(); }, item.delay);
+    return;
+  }
+
+  if(item.type === 'cursor'){
+    const div = document.createElement('div');
+    div.className = 'line';
+    div.innerHTML = '$ <span id="cursor"></span>';
+    term.appendChild(div);
+    return;
+  }
+
+  setTimeout(()=>{
+    if(item.cls === 'spacer'){
+      const div = document.createElement('div');
+      div.className = 'line spacer';
+      term.appendChild(div);
+    } else {
+      // Typewriter effect for some lines
+      addLine(item.text, item.cls);
+    }
+    runQueue();
+  }, item.delay);
+}
+
+// Kick off after short pause
+setTimeout(runQueue, 600);
+</script>
+</body>
+</html>
